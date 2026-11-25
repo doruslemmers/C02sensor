@@ -1007,7 +1007,6 @@ String getCaptivePortalStatusAsJson() {
     doc["captivePortalNoTimeout"] = captivePortalNoTimeout;
     doc["timeCaptivePortalStarted"] = timeCaptivePortalStarted;
     doc["timeToWaitForCaptivePortal"] = timeToWaitForCaptivePortal;
-    if (relaxedSecurity) doc["relaxedSecurity"] = relaxedSecurity;
     // timeToWaitForCaptivePortal in seconds timeCaptivePortalStarted in milliseconds captivePortalTimeLeft in seconds
     if (captivePortalNoTimeout) {  // If Captive Portal is active
         doc["captivePortalTimeLeft"] = 0;
@@ -1195,7 +1194,6 @@ void initWebServer() {
             if (request->hasParam("captivePortalActive") || request->hasParam("forceCaptivePortalActive") || request->hasParam("captivePortalNoTimeout") ||
                 request->hasParam("relaxedSecurity") || request->hasParam("forcedDebugWindow")) Serial.println(debugText);
 #endif
-            if (request->hasParam("relaxedSecurity")) relaxedSecurity = true;
             if (request->hasParam("forcedCaptivePortal")) forceCaptivePortalActive = true;
             if (request->hasParam("captivePortalNoTimeout")) captivePortalNoTimeout = true;
 
@@ -1205,7 +1203,7 @@ void initWebServer() {
             }
 
             if (forceCaptivePortalActive) captivePortalActive = true;
-            if (captivePortalActive) relaxedSecurity = true;
+            relaxedSecurity = false;
 
             timeCaptivePortalStarted = millis();
 
@@ -1623,10 +1621,16 @@ void initWebServer() {
             };
             // <CO2-GADGET_IP>/settings?showTemp=${inputShowTemp}&showHumidity=${inputShowHumidity}&showBattery=${inputShowBattery}
             if (request->hasParam("showTemp") || request->hasParam("showHumidity") || request->hasParam("showBattery")) {
-                displayShowTemperature = (request->getParam("showTemp")->value() == "true" || request->getParam("showTemp")->value() == "1");
-                displayShowHumidity = (request->getParam("showHumidity")->value() == "true" || request->getParam("showHumidity")->value() == "1");
-                displayShowBattery = (request->getParam("showBattery")->value() == "true" || request->getParam("showBattery")->value() == "1");
-                Serial.println("-->[WEBS] showTemp(" + request->getParam("showTemp")->value() + ") - showHumidity(" + request->getParam("showHumidity")->value() + ") - showBAttery(" + request->getParam("showBattery")->value() + ") in display");
+                if (request->hasParam("showTemp")) {
+                    displayShowTemperature = (request->getParam("showTemp")->value() == "true" || request->getParam("showTemp")->value() == "1");
+                }
+                if (request->hasParam("showHumidity")) {
+                    displayShowHumidity = (request->getParam("showHumidity")->value() == "true" || request->getParam("showHumidity")->value() == "1");
+                }
+                if (request->hasParam("showBattery")) {
+                    displayShowBattery = (request->getParam("showBattery")->value() == "true" || request->getParam("showBattery")->value() == "1");
+                }
+                Serial.println("-->[WEBS] Updated showTemp/showHumidity/showBattery in display");
                 if (!inMenu) {
 #ifdef DEBUG_CAPTIVE_PORTAL
                     Serial.println("-->[WEBS] Set shouldRedrawDisplay to true");
@@ -1668,9 +1672,7 @@ void initWebServer() {
 
     server.on("/getActualSettingsAsJson", HTTP_GET, [](AsyncWebServerRequest *request) {
         if (request != nullptr) {
-            //
-            if (request->hasParam("relaxedSecurity")) relaxedSecurity = true;
-            String preferencesJson = getActualSettingsAsJson(relaxedSecurity);
+            String preferencesJson = getActualSettingsAsJson(false);
             request->send(200, "application/json", preferencesJson);
         } else {
             Serial.println("---> [WiFi] Error: request is null");
@@ -1933,14 +1935,20 @@ void initWebServer() {
         uint16_t newLongTermBufferCapacity = longTermBufferCapacity;
 
         if (request->hasParam("sensorSampleInterval", true)) {
-            newSensorSampleInterval = request->getParam("sensorSampleInterval", true)->value().toInt();
+            int val = request->getParam("sensorSampleInterval", true)->value().toInt();
+            if (val > 0) newSensorSampleInterval = static_cast<uint16_t>(val);
         }
         if (request->hasParam("movingAverageInterval", true)) {
-            newMovingAverageInterval = request->getParam("movingAverageInterval", true)->value().toInt();
+            int val = request->getParam("movingAverageInterval", true)->value().toInt();
+            if (val > 0) newMovingAverageInterval = static_cast<uint16_t>(val);
         }
         if (request->hasParam("longTermBufferCapacity", true)) {
-            newLongTermBufferCapacity = request->getParam("longTermBufferCapacity", true)->value().toInt();
+            int val = request->getParam("longTermBufferCapacity", true)->value().toInt();
+            if (val > 0) newLongTermBufferCapacity = static_cast<uint16_t>(val);
         }
+        if (newSensorSampleInterval == 0) newSensorSampleInterval = 1;
+        if (newMovingAverageInterval < newSensorSampleInterval) newMovingAverageInterval = newSensorSampleInterval;
+        if (newLongTermBufferCapacity == 0) newLongTermBufferCapacity = 1;
 
         String response = updateBufferConfig(newSensorSampleInterval, newMovingAverageInterval, newLongTermBufferCapacity);
         request->send(200, "application/json", response);
@@ -1987,6 +1995,16 @@ bool connectToWiFi() {
     WiFi.disconnect(true);  // disconnect form wifi to set new wifi connection
     delay(100);
     WiFi.mode(WIFI_STA);
+    wifi_country_t country = {
+        .cc = "NL",
+        .schan = 1,
+        .nchan = 13,
+        .policy = WIFI_COUNTRY_POLICY_AUTO
+    };
+    esp_wifi_set_country(&country);
+#if defined(CONFIG_IDF_TARGET_ESP32C3)
+    WiFi.setTxPower(WIFI_POWER_8_5dBm);
+#endif
 
     if (useStaticIP) {
         if (!WiFi.config(staticIP, gateway, subnet, dns1, dns2)) {
@@ -2029,6 +2047,14 @@ bool connectToWiFi() {
     }
 
     if ((WiFiConnectionRetries >= maxWiFiConnectionRetriesDuringConnect) && (WiFi.status() != WL_CONNECTED)) {
+#ifdef DEBUG_WIFI_EVENTS
+        Serial.println("\n-->[WiFi] Timeout WiFi.status()=" + String(WiFi.status()));
+        int n = WiFi.scanNetworks();
+        Serial.println("-->[WiFi] Scan found " + String(n) + " networks:");
+        for (int i = 0; i < n; ++i) {
+            Serial.println("    " + WiFi.SSID(i) + " (ch " + String(WiFi.channel(i)) + ", " + String(WiFi.RSSI(i)) + " dBm)");
+        }
+#endif
         disableWiFi();
         troubledWIFI = true;
         timeTroubledWIFI = millis();

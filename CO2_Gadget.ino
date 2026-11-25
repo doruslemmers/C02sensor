@@ -384,8 +384,10 @@ uint64_t timeCaptivePortalStarted = 0;
 #include <Wire.h>
 
 #include "driver/adc.h"
+#if defined(CONFIG_IDF_TARGET_ESP32)
 #include "soc/rtc_cntl_reg.h"  // disable brownout problems
 #include "soc/soc.h"           // disable brownout problems
+#endif
 
 #ifdef SUPPORT_MDNS
 #include <ESPmDNS.h>
@@ -831,7 +833,7 @@ void setCpuFrequencyAndReinitSerial(int16_t newCpuFrequency) {
     setCpuFrequencyMhz(newCpuFrequency);
     Serial.begin(115200);
 #endif
-#if defined(CONFIG_IDF_TARGET_ESP32S3)
+#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32C3)
     setCpuFrequencyMhz(newCpuFrequency);
 #endif
 }
@@ -840,7 +842,11 @@ void utilityLoop() {
     return;  // Temporary disable utilityLoop
     if (isDownloadingBLE) return;
     int16_t actualCPUFrequency = getCpuFrequencyMhz();
+#if defined(CONFIG_IDF_TARGET_ESP32C3)
+    const int16_t highCpuFrequency = 160;
+#else
     const int16_t highCpuFrequency = 240;
+#endif
     const int16_t lowCpuFrequency = 80;
 
     if (workingOnExternalPower && actualCPUFrequency != highCpuFrequency) {
@@ -923,10 +929,10 @@ void initHighPerformanceMode() {
         Serial.println("-->[STUP] Improv Serial enabled");
     }
 #ifdef SUPPORT_CIRCULAR_BUFFER
+    setSensorSampleInterval(sensorSampleInterval);
+    setMovingAverageInterval(movingAverageInterval);
+    setLongTermBufferCapacity(longTermBufferCapacity);
     initCircularBuffer();
-    setSensorSampleInterval(10);       // Set the default sample interval to 10 seconds
-    setMovingAverageInterval(60);      // Set the default moving average interval to 60 seconds
-    setLongTermBufferCapacity(1440);   // Store one day of data at 1 minute intervals
 #endif
     Serial.println("-->[STUP] Ready.");
     Serial.flush();
@@ -1022,8 +1028,10 @@ void setup() {
     timerLightSleep.start();
     timerLightSleep.pause();
 #endif
+#if defined(CONFIG_IDF_TARGET_ESP32)
     uint32_t brown_reg_temp = READ_PERI_REG(RTC_CNTL_BROWN_OUT_REG);  // save WatchDog register
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);                        // disable brownout detector
+#endif
     Serial.setDebugOutput(true);
     Serial.setTxBufferSize(1024);
     Serial.setRxBufferSize(512);
@@ -1056,6 +1064,7 @@ void setup() {
                 Serial.println("-->[STUP] Initializing from deep sleep timer");
                 fromDeepSleep();
                 break;
+#if SOC_PM_SUPPORT_EXT_WAKEUP
             case ESP_SLEEP_WAKEUP_EXT0:
                 Serial.println("-->[STUP] Initializing from deep sleep GPIO (WAKEUP_EXT0)");
                 initGPIOLowPower();
@@ -1069,6 +1078,13 @@ void setup() {
                 initGPIOLowPower();
                 fromDeepSleep();
                 Serial.println("-->[STUP] Initialization from deep sleep GPIO (WAKEUP_EXT1) completed");
+                break;
+#endif
+            case ESP_SLEEP_WAKEUP_GPIO:
+                Serial.println("-->[STUP] Initializing from deep sleep GPIO (WAKEUP_GPIO)");
+                initGPIOLowPower();
+                fromDeepSleep();
+                Serial.println("-->[STUP] Initialization from deep sleep GPIO (WAKEUP_GPIO) completed");
                 break;
             case ESP_SLEEP_WAKEUP_TOUCHPAD:
                 Serial.println("-->[STUP] Initializing from deep sleep touchpad");
@@ -1123,7 +1139,9 @@ void setup() {
         Serial.println("-->[STUP] Entering high performance mode");
     }
 
+#if defined(CONFIG_IDF_TARGET_ESP32)
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, brown_reg_temp);  // enable brownout detector
+#endif
 }
 
 void loopOLD() {  // Only reached in HIGH PERFORMANCE MODE

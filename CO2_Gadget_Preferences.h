@@ -457,11 +457,8 @@ void initPreferences() {
     boardIdESPNow = preferences.getUInt("boardIdESPNow", 0);
 
     size_t key_size = preferences.getBytesLength("peerESPNow");
-    uint8_t buffer[key_size];
-    preferences.getBytes("peerESPNow", buffer, key_size);
-
-    if (key_size = sizeof(peerESPNowAddress)) {
-        memcpy(peerESPNowAddress, buffer, sizeof(peerESPNowAddress));
+    if (key_size == sizeof(peerESPNowAddress)) {
+        preferences.getBytes("peerESPNow", peerESPNowAddress, sizeof(peerESPNowAddress));
     }
 
     displayShowTemperature = preferences.getBool("showTemp", true);
@@ -501,7 +498,7 @@ void initPreferences() {
 // Retrieve Captive Portal preferences
 #ifdef SUPPORT_CAPTIVE_PORTAL
     captivePortalNoTimeout = preferences.getBool("cpNoTimeout", false);
-    relaxedSecurity = preferences.getBool("cpRelaxedSec", false);
+    relaxedSecurity = false;
     captivePortalDebug = preferences.getBool("cpDebug", false);
     timeToWaitForCaptivePortal = preferences.getUInt("cpWaitTime", 60);
 #endif
@@ -764,10 +761,7 @@ String getActualSettingsAsJson(bool includePasswords = false) {
     doc["mqttShowInCon"] = mqttShowInConsole;
     doc["mqttBroker"] = mqttBroker;
     doc["mqttUser"] = mqttUser;
-    // if includePasswords is false, do not include the password
-    if (includePasswords) {
-        doc["mqttPass"] = mqttPass;
-    }
+    doc["mqttPass"] = "";  // Never expose stored mqttPass over HTTP JSON
     doc["tToDispOff"] = timeToDisplayOff;
     doc["tKeepAlMQTT"] = timeToKeepAliveMQTT;
     doc["tKeepAlESPNow"] = timeToKeepAliveESPNow;
@@ -775,10 +769,7 @@ String getActualSettingsAsJson(bool includePasswords = false) {
     doc["tToPubESPNow"] = timeBetweenESPNowPublish;
     doc["dispOffOnExP"] = displayOffOnExternalPower;
     doc["wifiSSID"] = wifiSSID;
-    // if includePasswords is false, do not include the password
-    if (includePasswords) {
-        doc["wifiPass"] = wifiPass;
-    }
+    doc["wifiPass"] = "";  // Never expose stored wifiPass over HTTP JSON
     doc["hostName"] = hostName;
 
     // Fixed IP
@@ -838,16 +829,10 @@ String getActualSettingsAsJson(bool includePasswords = false) {
     // Captive Portal preferences
 #ifdef SUPPORT_CAPTIVE_PORTAL
     doc["cpNoTimeout"] = captivePortalNoTimeout;
-    if (relaxedSecurity) {
-        doc["cpRelaxedSec"] = relaxedSecurity;
-    }
     doc["cpDebug"] = captivePortalDebug;
     doc["cpWaitTime"] = timeToWaitForCaptivePortal;
 #endif
-
-    if (relaxedSecurity) {
-        doc["relaxedSecurity"] = true;
-    }
+    doc["relaxedSecurity"] = true;  // Keep form fields editable (write-only); passwords above are always empty ""
 
     String preferencesJson;
     serializeJson(doc, preferencesJson);
@@ -1223,12 +1208,6 @@ bool handleSavePreferencesFromJSON(String jsonPreferences) {
 #endif
             captivePortalNoTimeout = JsonDocument["cpNoTimeout"];
         }
-        if (JsonDocument.containsKey("cpRelaxedSec")) {
-#ifdef DEBUG_CAPTIVE_PORTAL
-            Serial.println("-->[CAPT] cpRelaxedSec is present. Setting value to: " + String(JsonDocument["cpRelaxedSec"].as<String>()));
-#endif
-            relaxedSecurity = JsonDocument["cpRelaxedSec"];
-        }
         if (JsonDocument.containsKey("cpDebug")) {
 #ifdef DEBUG_CAPTIVE_PORTAL
             Serial.println("-->[CAPT] cpDebug is present. Setting value to: " + String(JsonDocument["cpDebug"].as<String>()));
@@ -1243,14 +1222,14 @@ bool handleSavePreferencesFromJSON(String jsonPreferences) {
         }
 #endif
 
-        // If JsonDocument["wifiPass"] is present and different from the current one, update the wifiPass variable
-        if (JsonDocument.containsKey("wifiPass") && (wifiPass != JsonDocument["wifiPass"].as<String>().c_str())) {
+        // If JsonDocument["wifiPass"] is present, non-empty, and different from the current one, update the wifiPass variable
+        if (JsonDocument.containsKey("wifiPass") && !JsonDocument["wifiPass"].as<String>().isEmpty() && (wifiPass != JsonDocument["wifiPass"].as<String>().c_str())) {
             Serial.println("-->[PREF] WiFi Password changed. Updating WiFi Password in preferences");
             wifiPass = JsonDocument["wifiPass"].as<String>().c_str();
             wifiChanged = true;
         }
-        // If JsonDocument["mqttPass"] is present and different from the current one, update the mqttPass variable
-        if (JsonDocument.containsKey("mqttPass") && (mqttPass != JsonDocument["mqttPass"].as<String>().c_str())) {
+        // If JsonDocument["mqttPass"] is present, non-empty, and different from the current one, update the mqttPass variable
+        if (JsonDocument.containsKey("mqttPass") && !JsonDocument["mqttPass"].as<String>().isEmpty() && (mqttPass != JsonDocument["mqttPass"].as<String>().c_str())) {
             Serial.println("-->[PREF] MQTT Password changed. Updating MQTT Password in preferences");
             mqttPass = JsonDocument["mqttPass"].as<String>().c_str();
             wifiChanged = true;

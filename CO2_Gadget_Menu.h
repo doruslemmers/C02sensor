@@ -1351,14 +1351,14 @@ bool isMenuHexChar(char c) {
          ((c >= 'A') && (c <= 'F'));
 }
 
-void hexCharacterStringToBytes(byte *byteArray, const char *hexString) // https://forum.arduino.cc/t/hex-string-to-byte-array/563827/4
+void hexCharacterStringToBytes(byte *byteArray, const char *hexString, byte maxBytes = 6) // https://forum.arduino.cc/t/hex-string-to-byte-array/563827/4
 {
   bool oddLength = strlen(hexString) & 1;
 
   byte currentByte = 0;
   byte byteIndex = 0;
 
-  for (byte charIndex = 0; charIndex < strlen(hexString); charIndex++)
+  for (size_t charIndex = 0; charIndex < strlen(hexString) && byteIndex < maxBytes; charIndex++)
   {
     bool oddCharIndex = charIndex & 1;
 

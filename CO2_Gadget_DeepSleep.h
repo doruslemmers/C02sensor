@@ -73,6 +73,7 @@ String getDeepSleepDataCo2SensorName() {
 }
 
 void printWakeupTouchpad() {
+#if SOC_TOUCH_SENSOR_NUM > 0
     touch_pad_t touchPin;
     touchPin = esp_sleep_get_touchpad_wakeup_status();
 
@@ -118,6 +119,9 @@ void printWakeupTouchpad() {
     } else {
         Serial.println("-->[DEEP] Wakeup not by touchpad");
     }
+#endif
+#else
+    Serial.println("-->[DEEP] Touchpad wakeup not supported on this target");
 #endif
 }
 
@@ -412,7 +416,7 @@ void toDeepSleep() {
 
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
 
-#ifdef BTN_WAKEUP_IS_TOUCHPAD
+#if defined(BTN_WAKEUP_IS_TOUCHPAD) && (SOC_TOUCH_SENSOR_NUM > 0)
     // Setup interrupt on Touch Pad 0 (GPIO15)
     // touchAttachInterrupt(T3, callbackTouch, 40);
     touchAttachInterrupt(BTN_WAKEUP, callbackTouch, 40);
@@ -464,6 +468,17 @@ void toDeepSleep() {
         gpio_pullup_en(static_cast<gpio_num_t>(BTN_UP));
         gpio_pulldown_dis(static_cast<gpio_num_t>(BTN_UP));
         esp_sleep_enable_ext1_wakeup(1ULL << BTN_UP, ESP_EXT1_WAKEUP_ALL_LOW);
+    }
+#elif CONFIG_IDF_TARGET_ESP32C3
+    // ESP32-C3: only RTC GPIOs 0-5 support deep sleep GPIO wakeup.
+    if ((BTN_DWN >= 0) && (BTN_DWN <= 5) && esp_sleep_is_valid_wakeup_gpio(static_cast<gpio_num_t>(BTN_DWN))) {
+        gpio_pullup_en(static_cast<gpio_num_t>(BTN_DWN));
+        gpio_pulldown_dis(static_cast<gpio_num_t>(BTN_DWN));
+        esp_deep_sleep_enable_gpio_wakeup(1ULL << BTN_DWN, ESP_GPIO_WAKEUP_GPIO_LOW);
+    } else if ((BTN_UP >= 0) && (BTN_UP <= 5) && esp_sleep_is_valid_wakeup_gpio(static_cast<gpio_num_t>(BTN_UP))) {
+        gpio_pullup_en(static_cast<gpio_num_t>(BTN_UP));
+        gpio_pulldown_dis(static_cast<gpio_num_t>(BTN_UP));
+        esp_deep_sleep_enable_gpio_wakeup(1ULL << BTN_UP, ESP_GPIO_WAKEUP_GPIO_LOW);
     }
 #else
     // Classic ESP32: only RTC-capable GPIOs can be used (0,2,4,12-15,25-27,32-39).
@@ -602,6 +617,8 @@ void reInitI2C() {
     if (!Wire.available()) {
 #if defined(CUSTOM_I2C_SDA) && defined(CUSTOM_I2C_SCL)
         Wire.begin(CUSTOM_I2C_SDA, CUSTOM_I2C_SCL);
+#elif defined(I2C_SDA) && defined(I2C_SCL)
+        Wire.begin(I2C_SDA, I2C_SCL);
 #else
         Wire.begin();
 #endif
@@ -961,6 +978,7 @@ bool handleLowPowerSensors() {
 #ifdef DEEP_SLEEP_DEBUG
         if (!interactiveMode) Serial.println("-->[DEEP][ERROR] deepSleepData.co2Sensor: Unknown");
 #endif
+        reInitI2C();
         sensors.init();
     }
 #ifdef SUPPORT_BTHOME_BLE
@@ -1183,6 +1201,7 @@ void handleWakeupCauseOnWake(esp_sleep_wakeup_cause_t wakeupCause) {
             break;
         case ESP_SLEEP_WAKEUP_EXT0:
         case ESP_SLEEP_WAKEUP_EXT1:
+        case ESP_SLEEP_WAKEUP_GPIO:
         case ESP_SLEEP_WAKEUP_TOUCHPAD:
 #ifdef DEEP_SLEEP_DEBUG
             Serial.println("-->[DEEP] Wakeup caused by external signal");

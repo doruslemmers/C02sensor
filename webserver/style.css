@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    CO2 Gadget Â· Premium Design System v2
    Inspired by Apple Home, Eve Energy, Netatmo
    ============================================================ */
@@ -1494,27 +1494,27 @@ input.error {
    CHARTS PAGE — fills viewport exactly, no scrollbar
    ================================================================ */
 body.charts-page {
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .charts-page .content {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 56px); /* 56px = sticky navbar */
-  overflow: hidden;
-  padding-bottom: 12px;
+  min-height: calc(100vh - 56px); /* 56px = sticky navbar */
+  height: auto;
+  overflow: visible;
+  padding-bottom: 24px;
 }
 .charts-page .chart-canvas-wrap {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 200px;
-  overflow: hidden;
+  flex: none;
+  overflow: visible;
 }
 .charts-page #container {
-  flex: 1;
-  min-height: 0;
   width: 100%;
-  height: auto;
+  height: 55vh;
+  min-height: 320px;
 }
 
 /* ================================================================
@@ -1542,7 +1542,8 @@ body.is-fullscreen .content {
 }
 /* Charts page: full height in fullscreen since navbar is out of flow */
 body.is-fullscreen.charts-page .content {
-  height: 100vh;
+  min-height: 100vh;
+  height: auto;
 }
 /* Fullscreen icon */
 #iconFullscreen {

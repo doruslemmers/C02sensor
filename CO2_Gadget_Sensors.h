@@ -256,7 +256,9 @@ void initSensors() {
     uint8_t smooth;
 
 // Initialize sensors
-#ifdef I2C_SDA&& defined(I2C_SCL)
+#if defined(CUSTOM_I2C_SDA) && defined(CUSTOM_I2C_SCL)
+    Wire.begin(CUSTOM_I2C_SDA, CUSTOM_I2C_SCL);
+#elif defined(I2C_SDA) && defined(I2C_SCL)
     Wire.begin(I2C_SDA, I2C_SCL);
 #else
     Wire.begin();

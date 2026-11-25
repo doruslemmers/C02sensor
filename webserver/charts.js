@@ -1,10 +1,10 @@
-﻿/* =========================================================
+/* =========================================================
    CO2 Gadget – Charts page
    ========================================================= */
 
 /**
- * Convierte un timestamp (ms) a string 'yyyy-MM-ddTHH:mm' en hora local del navegador.
- * Se usa para rellenar los inputs datetime-local cuando el usuario activa el filtro.
+ * Converts a timestamp (ms) to a 'yyyy-MM-ddTHH:mm' string in the browser's local time.
+ * Used to populate the datetime-local inputs when the user enables the filter.
  */
 function tsToDatetimeLocal(ts) {
     const d = new Date(ts);
@@ -13,7 +13,7 @@ function tsToDatetimeLocal(ts) {
         'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
 
-/** Descarga un fichero de texto en el navegador */
+/** Downloads a text file in the browser */
 function downloadText(filename, content) {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([content], { type: 'text/plain' }));
@@ -23,46 +23,54 @@ function downloadText(filename, content) {
 }
 
 /**
- * Construye los puntos (timestamp, value) a partir de la respuesta de la API.
+ * Builds (timestamp, value) points from the API response.
  *
- * El ESP32 usa millis() (uptime desde boot), NO hora de pared (epoch).
- * Por tanto data.lastTimestamp es tiempo de uptime del primer punto, no
- * convertible directamente a wall-clock.
+ * The ESP32 uses millis() (uptime since boot), NOT wall-clock time (epoch).
+ * Therefore data.lastTimestamp is the uptime of the first point, not
+ * directly convertible to wall-clock time.
  *
- * Estrategia correcta:
- *   - El punto con índice `data.end` (el más reciente) fue añadido al buffer
- *     aproximadamente en el momento en que se recibió esta respuesta HTTP.
- *   - Asumimos: wall_time(data.end) ≈ Date.now()
- *   - Cada punto anterior está un intervalDuration antes:
+ * Correct strategy:
+ *   - The point at index `data.end` (the most recent) was added to the buffer
+ *     approximately when this HTTP response was received.
+ *   - We assume: wall_time(data.end) ≈ Date.now()
+ *   - Each preceding point is one intervalDuration earlier:
  *     wall_time(i) = Date.now() + (i - data.end) * intervalDuration
  *
- * Si el usuario ha configurado una zona horaria distinta a la del navegador en
- * las preferencias, aplicamos el desplazamiento extra (tzExtraMs) para que
- * Highcharts (useUTC:false) muestre la hora de la zona guardada.
+ * If the user configured a timezone different from the browser's in
+ * preferences, we apply the extra offset (tzExtraMs) so that
+ * Highcharts (useUTC:false) displays the saved timezone's time.
  *
- * El buffer almacena promedios de movingAverageInterval segundos (por defecto
- * 60 s). Cada punto es ya un "bucket" de 1 minuto de media. Con 1440 puntos
- * (capacidad por defecto = 24 h) Highcharts renderiza sin problemas y no es
- * necesario hacer ningún downsampling adicional en el navegador.
+ * The buffer stores averages of movingAverageInterval seconds (default
+ * 60 s). Each point is already a 1-minute average bucket. With 1440 points
+ * (default capacity = 24 h) Highcharts renders smoothly and no additional
+ * downsampling is needed in the browser.
  */
 function buildPoints(data) {
     const values = data.data;
-    const interval = data.intervalDuration;  // ms entre puntos consecutivos
-    const end = data.end;                     // índice del punto más reciente
+    const interval = data.intervalDuration;  // ms between consecutive points
+    const end = data.end;                     // index of the most recent point
 
-    // El punto más reciente fue añadido aproximadamente cuando se recibió la respuesta.
-    // Highcharts con useUTC:false ya aplica la zona horaria del navegador al mostrar.
+    // The most recent point was added approximately when the response was received.
+    // Highcharts with useUTC:false already applies the browser's timezone when displaying.
     const newestTs = Date.now();
 
     return values.map((v, i) => [newestTs + (i - end) * interval, v]);
 }
 
-/** Filtra puntos por rango de timestamps (ambos extremos inclusivos) */
+/** Filters points by timestamp range (both bounds inclusive) */
 function filterPoints(points, fromTs, toTs) {
     return points.filter(([ts]) => ts >= fromTs && ts <= toTs);
 }
 
-/** Inyecta el panel de controles encima del contenedor del gráfico */
+const CO2_ZONES = [
+    { from: 0,    to: 450,   color: 'rgba(56, 189, 248, 0.16)', swatch: '#38bdf8', label: '< 450 ppm: Outdoor' },
+    { from: 450,  to: 800,   color: 'rgba(34, 197, 94, 0.16)',  swatch: '#22c55e', label: '450\u2013800 ppm: Fresh (Recommended)' },
+    { from: 800,  to: 1000,  color: 'rgba(234, 179, 8, 0.18)',  swatch: '#eab308', label: '800\u20131000 ppm: Acceptable (Upper limit)' },
+    { from: 1000, to: 1500,  color: 'rgba(249, 115, 22, 0.20)', swatch: '#f97316', label: '1000\u20131500 ppm: Poor / Stuffy' },
+    { from: 1500, to: 10000, color: 'rgba(239, 68, 68, 0.20)',  swatch: '#ef4444', label: '> 1500 ppm: Bad' }
+];
+
+/** Injects the control panel above the chart container */
 function injectControls() {
     const container = document.getElementById('container');
     if (!container || document.getElementById('charts-controls')) return;
@@ -71,23 +79,23 @@ function injectControls() {
     panel.id = 'charts-controls';
     panel.innerHTML = `
         <div class="charts-filter-group">
-            <label class="charts-filter-toggle" title="Activar filtro de rango de fechas">
+            <label class="charts-filter-toggle" title="Enable date range filter">
                 <input type="checkbox" id="charts-filter-enabled">
-                <span>Rango de fechas:</span>
+                <span>Date range:</span>
             </label>
             <div id="charts-range-inputs" class="charts-range-inputs charts-range-disabled">
-                <input type="datetime-local" id="charts-from" title="Desde">
+                <input type="datetime-local" id="charts-from" title="From">
                 <span class="charts-range-sep">→</span>
-                <input type="datetime-local" id="charts-to" title="Hasta">
-                <button id="charts-apply" class="btn-charts">Aplicar</button>
+                <input type="datetime-local" id="charts-to" title="To">
+                <button id="charts-apply" class="btn-charts">Apply</button>
             </div>
         </div>
         <div class="charts-export-btns">
-            <span class="charts-export-label">Exportar:</span>
-            <button id="charts-csv"  class="btn-charts" title="Descargar datos en CSV">CSV</button>
-            <button id="charts-json" class="btn-charts" title="Descargar datos en JSON">JSON</button>
-            <button id="charts-png"  class="btn-charts" title="Descargar gráfico como imagen PNG">PNG</button>
-            <button id="charts-svg"  class="btn-charts" title="Descargar gráfico como vector SVG">SVG</button>
+            <span class="charts-export-label">Export:</span>
+            <button id="charts-csv"  class="btn-charts" title="Download data as CSV">CSV</button>
+            <button id="charts-json" class="btn-charts" title="Download data as JSON">JSON</button>
+            <button id="charts-png"  class="btn-charts" title="Download chart as PNG image">PNG</button>
+            <button id="charts-svg"  class="btn-charts" title="Download chart as SVG vector">SVG</button>
         </div>
     `;
 
@@ -185,13 +193,79 @@ function injectControls() {
                 width: 100%;
             }
         }
+        .charts-band-legend {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px 16px;
+            margin-top: 10px;
+            padding: 8px 12px;
+            border-radius: var(--r-md, 10px);
+            background: var(--surface-2, #f5f5f7);
+            border: 1px solid var(--border, #d1d1d6);
+            font-size: .8rem;
+            color: var(--font-color, #333);
+        }
+        .charts-band-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+        .charts-band-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+        .co2-reference-wrap {
+            margin-top: 16px;
+            padding: 12px 16px;
+            border-radius: var(--r-md, 10px);
+            background: var(--surface-2, #f5f5f7);
+            border: 1px solid var(--border, #d1d1d6);
+        }
+        .co2-ref-title {
+            margin: 0 0 10px 0;
+            font-size: .95rem;
+            color: var(--title-color, #222);
+        }
+        .co2-ref-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .84rem;
+            color: var(--font-color, #333);
+        }
+        .co2-ref-table th, .co2-ref-table td {
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 1px solid var(--border, #d1d1d6);
+        }
+        .co2-ref-table th {
+            font-weight: 600;
+            color: var(--title-color, #222);
+        }
+        .co2-ref-table tbody tr:last-child td { border-bottom: none; }
+        .co2-row-outdoor    { background-color: rgba(56, 189, 248, 0.16); }
+        .co2-row-fresh      { background-color: rgba(34, 197, 94, 0.16); }
+        .co2-row-acceptable { background-color: rgba(234, 179, 8, 0.18); }
+        .co2-row-poor       { background-color: rgba(249, 115, 22, 0.20); }
+        .co2-row-bad        { background-color: rgba(239, 68, 68, 0.20); }
     `;
     document.head.appendChild(style);
     container.parentNode.insertBefore(panel, container);
+
+    const legendEl = document.getElementById('charts-band-legend');
+    if (legendEl) {
+        legendEl.innerHTML = CO2_ZONES.map(z =>
+            `<span class="charts-band-item"><span class="charts-band-swatch" style="background:${z.swatch}"></span>${z.label}</span>`
+        ).join('');
+    }
 }
 
 /**
- * Crea/actualiza el gráfico Highcharts y registra toda la lógica de controles.
+ * Creates/updates the Highcharts chart and registers all control logic.
  */
 function CreateChart() {
     if (typeof Highcharts !== 'undefined') {
@@ -214,7 +288,7 @@ function CreateChart() {
                 animation: false
             },
             title: {
-                text: 'CO\u2082 \u2013 mediciones recientes',
+                text: 'CO\u2082 \u2013 Recent Measurements',
                 style: { color: cs('--title-color') }
             },
             xAxis: {
@@ -223,7 +297,8 @@ function CreateChart() {
             },
             yAxis: {
                 title: { text: 'CO\u2082 (ppm)', style: { color: cs('--font-color') } },
-                labels: { style: { color: cs('--font-color') } }
+                labels: { style: { color: cs('--font-color') } },
+                plotBands: CO2_ZONES.map(({ from, to, color }) => ({ from, to, color }))
             },
             series: [{
                 name: 'CO\u2082',
@@ -288,7 +363,7 @@ function CreateChart() {
         if (toInput)   toInput.value   = tsToDatetimeLocal(allPoints[allPoints.length - 1][0]);
     }
 
-    // Checkbox: activa/desactiva el filtro de rango
+    // Checkbox: enables/disables the range filter
     const filterCb = document.getElementById('charts-filter-enabled');
     const rangeDiv  = document.getElementById('charts-range-inputs');
     if (filterCb) {
@@ -332,7 +407,7 @@ function CreateChart() {
         if (chart) chart.exportChart({ type: 'image/svg+xml', filename: 'co2_data' });
     });
 
-    // Actualizar colores al cambiar de tema
+    // Update colors when theme changes
     document.addEventListener('themeChange', () => {
         if (!chart) return;
         chart.update({
@@ -350,9 +425,9 @@ function CreateChart() {
 
     window.addEventListener('resize', () => { if (chart) chart.reflow(); });
 
-    // Carga inicial y refresco automático cada 60 s.
-    // Si el filtro está desactivado (por defecto) siempre se muestran todos los puntos.
-    // Si el filtro está activo, los inputs ya están fijados por el usuario → no se sobreescriben.
+    // Initial load and automatic refresh every 60 s.
+    // If the filter is disabled (default), all points are always shown.
+    // If the filter is active, the inputs are already set by the user -> do not overwrite them.
     function fetchAndRender() {
         fetchWithTimeout('/circularBufferData', {}, 10000)
             .then(r => {

@@ -114,6 +114,9 @@ void buttonsLoop() {
 }
 
 bool isButtonPressedOnWakeUp() {
+    if (BTN_DWN < 0) {
+        return false;
+    }
     unsigned long buttonPressStartTime = millis();
     bool buttonState = digitalRead(BTN_DWN);  // Initial button state
 

@@ -17,7 +17,7 @@ from pathlib import Path
 try:
     _script_dir = Path(__file__).resolve().parent
 except NameError:
-    _script_dir = Path(os.path.abspath(sys.argv[0])).resolve().parent
+    _script_dir = Path.cwd().resolve() / "tools"
 
 PROJECT_DIR = _script_dir.parent
 WEBSERVER_DIR = PROJECT_DIR / "webserver"
@@ -135,6 +135,11 @@ def main():
         return
 
     if needs_rebuild():
+        if all((DATA_DIR / name).exists() for name in PAGE_FILES.values()) and not (
+            shutil.which("uglifyjs") and shutil.which("html-minifier") and shutil.which("uglifycss")
+        ):
+            print("  [web-assets] Pre-built .gz assets exist in data/ (minifier CLI tools not installed) — skipping rebuild")
+            return
         run_pipeline()
     else:
         print("  [web-assets] up to date — skipping rebuild")
@@ -142,3 +147,25 @@ def main():
 
 if __name__ == "__main__":
     main()
+else:
+    try:
+        Import("env")  # type: ignore[name-defined]
+        main()
+        if hasattr(env, "ConvertInoToCpp"):  # type: ignore[name-defined]
+            _orig_convert_ino = env.ConvertInoToCpp  # type: ignore[name-defined]
+
+            def _patched_convert_ino(e, *args, **kwargs):
+                res = _orig_convert_ino(*args, **kwargs)
+                try:
+                    for d_var in ("$PROJECT_SRC_DIR", "$BUILD_SRC_DIR"):
+                        d_node = e.Dir(d_var)
+                        if hasattr(d_node, "on_disk_entries"):
+                            delattr(d_node, "on_disk_entries")
+                except Exception:
+                    pass
+                return res
+
+            env.AddMethod(_patched_convert_ino, "ConvertInoToCpp")  # type: ignore[name-defined]
+    except NameError:
+        pass
+
